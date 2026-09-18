@@ -177,7 +177,7 @@ with st.container():
             if not _auto_df.empty:
                 st.session_state.df_raw   = _auto_df.copy()
                 st.session_state.df_work  = _auto_df.copy()
-                st.session_state.file_name = "kc_house_data"
+                st.session_state.file_name = "superstore_clean.csv"
                 st.session_state.num_cols  = get_numeric_cols(_auto_df)
                 st.session_state.cat_cols  = get_cat_cols(_auto_df)
                 if len(st.session_state.num_cols) == 0:
