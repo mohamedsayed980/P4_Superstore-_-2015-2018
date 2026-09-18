@@ -48,6 +48,8 @@ from reportlab.lib.units import cm
 from docx import Document
 from docx.shared import Pt, RGBColor, Inches
 
+
+
 # =============================================================================
 # B — PAGE CONFIG & GLOBAL STYLE -----> in Home.py only 
 # =============================================================================
@@ -58,6 +60,18 @@ LOGO = pathlib.Path(__file__).parent.parent / "3M_logo.png"
 # =============================================================================
 # C — SESSION STATE INITIALISATION
 # =============================================================================
+# Add these to your init_state() function or
+# at the top of the file after imports:
+
+if "price_bins" not in st.session_state:
+    st.session_state.price_bins = [0, 300000, 500000, 750000, float('inf')]
+if "price_labels" not in st.session_state:
+    st.session_state.price_labels = ["Budget","Mid","Premium","Luxury"]
+if "feat_names" not in st.session_state:
+    st.session_state.feat_names = []
+if "data_prepared_c" not in st.session_state:
+    st.session_state.data_prepared_c = False
+
 
 def init_state():
     defaults = {
@@ -138,51 +152,82 @@ st.markdown("""
 # F — FILE LOADER (Sidebar-free: shown above tabs)
 # =============================================================================
 
+import pathlib
+ 
+_root  = pathlib.Path(__file__).parent.parent
+_full  = _root / "data" / "superstore_clean.csv"   
+
+@st.cache_data
+def _load_auto():
+    if _full.exists():
+        return pd.read_csv(_full)
+    return pd.DataFrame()
+ 
 with st.sidebar:
     st.image(str(LOGO), width=70)
     st.markdown("---")
-    
-
+ 
 with st.container():
     col_load, col_target, col_thresh, col_info = st.columns([3, 2, 2, 3])
-
+ 
     with col_load:
+        # ── Try auto-load first ──────────────────────────────
+        if st.session_state.df_raw is None:
+            _auto_df = _load_auto()
+            if not _auto_df.empty:
+                st.session_state.df_raw   = _auto_df.copy()
+                st.session_state.df_work  = _auto_df.copy()
+                st.session_state.file_name = "kc_house_data"
+                st.session_state.num_cols  = get_numeric_cols(_auto_df)
+                st.session_state.cat_cols  = get_cat_cols(_auto_df)
+                if len(st.session_state.num_cols) == 0:
+                    st.session_state.num_cols = _auto_df.select_dtypes(
+                        include="number").columns.tolist()
+                if len(st.session_state.cat_cols) == 0:
+                    st.session_state.cat_cols = _auto_df.select_dtypes(
+                        include="object").columns.tolist()
+ 
+        # ── Manual upload as fallback ────────────────────────
         uploaded = st.file_uploader(
             "📂 Load Dataset (.csv)", type=["csv"],
             key="file_uploader", label_visibility="collapsed",
-            help="Upload your CSV dataset"
+            help="Upload CSV if auto-load fails"
         )
         if uploaded:
             try:
                 df = pd.read_csv(uploaded, sep=None, engine="python")
-                st.session_state.df_raw  = df.copy()
-                st.session_state.df_work = df.copy()
+                st.session_state.df_raw   = df.copy()
+                st.session_state.df_work  = df.copy()
                 st.session_state.file_name = uploaded.name
-                
-                st.session_state.num_cols = get_numeric_cols(df)
-                st.session_state.cat_cols = get_cat_cols(df)
-                
-                # Safety: if get_numeric_cols filtered too aggressively, fallback to all numeric  # add that safety
+                st.session_state.num_cols  = get_numeric_cols(df)
+                st.session_state.cat_cols  = get_cat_cols(df)
                 if len(st.session_state.num_cols) == 0:
-                    st.session_state.num_cols = df.select_dtypes(include="number").columns.tolist()
-                    if len(st.session_state.cat_cols) == 0:
-                        st.session_state.cat_cols = df.select_dtypes(include="object").columns.tolist()
-                
-                st.success(f"✅  Loaded **{uploaded.name}** — {df.shape[0]:,} rows × {df.shape[1]} columns")
+                    st.session_state.num_cols = df.select_dtypes(
+                        include="number").columns.tolist()
+                if len(st.session_state.cat_cols) == 0:
+                    st.session_state.cat_cols = df.select_dtypes(
+                        include="object").columns.tolist()
+                st.success(f"✅ Loaded **{uploaded.name}** — "
+                           f"{df.shape[0]:,} rows × {df.shape[1]} columns")
             except Exception as e:
                 st.error(f"Error loading file: {e}")
-
+ 
+        # ── Status message ───────────────────────────────────
+        if st.session_state.df_raw is not None:
+            _src = "data/ folder" if not uploaded else uploaded.name
+            st.success(f"✅ {st.session_state.file_name} loaded "
+                       f"({st.session_state.df_raw.shape[0]:,} rows) "
+                       f"— from {_src}")
+ 
     with col_target:
         if st.session_state.df_raw is not None:
             cols = st.session_state.df_raw.columns.tolist()
-            
-            #default_idx = cols.index("price") if "price" in cols else 0                    # old repo1# xx
-            
-            default_idx = cols.index("Profit") if "Profit" in cols else 0
-            
-            target = st.selectbox("🎯 Target Variable", cols, index=default_idx)
+            default_idx = cols.index("price") \
+                          if "price" in cols else 0
+            target = st.selectbox("🎯 Target Variable",
+                                  cols, index=default_idx)
             st.session_state.target_col = target
-
+ 
     with col_thresh:
         thresh = st.slider(
             "Correlation Threshold",
@@ -191,23 +236,24 @@ with st.container():
             0.05
         )
         st.session_state.corr_threshold = thresh
-
+ 
     with col_info:
         if st.session_state.df_raw is not None:
             df = st.session_state.df_raw
             st.markdown(f"""
             <div style="background:white;border-radius:8px;padding:10px 14px;
-                        box-shadow:0 2px 6px rgba(0,0,0,.08);font-size:0.82rem;line-height:1.8;">
+                        box-shadow:0 2px 6px rgba(0,0,0,.08);
+                        font-size:0.82rem;line-height:1.8;">
                 📊 <b>Shape:</b> {df.shape[0]:,} × {df.shape[1]}<br>
-                🔢 <b>Numeric:</b> {len(st.session_state.num_cols)} &nbsp;|&nbsp;
+                🔢 <b>Numeric:</b> {len(st.session_state.num_cols)}
+                &nbsp;|&nbsp;
                 🔤 <b>Categorical:</b> {len(st.session_state.cat_cols)}<br>
                 ❓ <b>Missing:</b> {df.isnull().sum().sum():,} cells
             </div>
             """, unsafe_allow_html=True)
         else:
-            st.info("⬆️ Please upload a CSV file to begin.")
-            
-     
+            st.info("⬆️ Upload CSV or place in data/ folder.")
+ 
 st.markdown("---")
 
 # =============================================================================
