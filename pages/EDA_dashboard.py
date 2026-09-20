@@ -1633,7 +1633,7 @@ with tabs[9]:
             if "Discount" in df.columns and "Profit" in df.columns:
                 df["disc_bucket"] = pd.cut(df["Discount"],
                     bins=[-0.01,0,0.1,0.2,0.3,0.4,0.5,1.0],
-                    tick_labels=["0%","1-10%","11-20%","21-30%","31-40%","41-50%",">50%"])
+                    labels=["0%","1-10%","11-20%","21-30%","31-40%","41-50%",">50%"])
                 disc_profit = df.groupby("disc_bucket", observed=True)["Profit"].mean()
                 colors_dp = ["#2e7d32" if v>0 else "#c62828" for v in disc_profit.values]
                 fig, ax = plt.subplots(figsize=(6,4))
@@ -2076,7 +2076,7 @@ with tabs[13]:
                 bp = ax.boxplot(
                     [group_A.clip(-500,500), group_B.clip(-500,500)],
                     patch_artist=True, notch=True,
-                    tick_labels=["A: No Discount","B: Discounted"]
+                    labels=["A: No Discount","B: Discounted"]
                 )
                 bp["boxes"][0].set_facecolor("#1565c0")
                 bp["boxes"][1].set_facecolor("#c62828")
@@ -2141,7 +2141,7 @@ with tabs[13]:
             if "Discount" in df.columns:
                 df["disc_bucket"] = pd.cut(df["Discount"],
                     bins=[-0.01,0,0.1,0.2,0.3,0.4,0.5,1.0],
-                    tick_labels=["0%","1-10%","11-20%","21-30%","31-40%","41-50%",">50%"])
+                    labels=["0%","1-10%","11-20%","21-30%","31-40%","41-50%",">50%"])
                 bucket_stats = df.groupby("disc_bucket", observed=True)["Profit"].agg(
                     ["mean","count","std"]).reset_index()
                 bucket_stats.columns = ["Discount Range","Avg Profit","Orders","Std Dev"]
