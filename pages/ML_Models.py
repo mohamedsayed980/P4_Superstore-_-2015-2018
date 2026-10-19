@@ -510,26 +510,26 @@ with st.sidebar:
     data_src = st.radio("", ["From EDA Dashboard (session)",
                               "Upload CSV file"], label_visibility="collapsed")
 
-    st.session_state.df_raw= None
+    df_global = None
     if data_src == "From EDA Dashboard (session)":
-        st.session_state.df_raw= load_data()
-        if st.session_state.df_raw is not None:
-            st.success(f"✅ Loaded — {len(st.session_state.df_raw):,} rows")
+        df_global = load_data()
+        if df_global is not None:
+            st.success(f"✅ Loaded — {len(df_global):,} rows")
         else:
             st.warning("No data in session.\nRun ML_EDA_Dashboard first or upload a file.")
     else:
         up = st.file_uploader("Upload CSV", type=["csv"],
                                label_visibility="collapsed")
         if up:
-            st.session_state.df_raw= pd.read_csv(up)
-            S["df_clean"] = st.session_state.df_raw
-            st.success(f"✅ {len(st.session_state.df_raw):,} rows loaded")
+            df_global = pd.read_csv(up)
+            S["df_clean"] = df_global
+            st.success(f"✅ {len(df_global):,} rows loaded")
 
     # ── Target / features ────────────────────────────────────────────────────
-    if st.session_state.df_raw is not None:
+    if df_global is not None:
         st.divider()
         st.markdown("### ⚙️ Configuration")
-        num_cols = st.session_state.df_raw.select_dtypes(include=np.number).columns.tolist()
+        num_cols = df_global.select_dtypes(include=np.number).columns.tolist()
         target   = st.selectbox("Target column (regression)",
                                  num_cols,
                                  index=num_cols.index("MonthlyIncome")
@@ -597,7 +597,7 @@ def _no_data_msg():
 # =============================================================================
 with tab9:
     st.markdown("## 📉 Regression Models")
-    if st.session_state.df_raw is None:
+    if df_global is None:
         _no_data_msg()
         st.stop()
 
@@ -618,7 +618,7 @@ with tab9:
 
     # ── 9.2 Prepare data ────────────────────────────────────────────────────
     if not S["data_prepared_r"]:
-        prepare_regression(st.session_state.df_raw)
+        prepare_regression(df_global)
 
     # ── 9.3 Controls ────────────────────────────────────────────────────────
     section("⚙️ Training Configuration")
@@ -685,7 +685,7 @@ with tab9:
                              f"({'⚠️ All cores!' if n_jobs_r == os.cpu_count() else '✅ Safe mode'})")
 #-------------------------------------------------------------------
     if run_r and sel_models_r:
-        prepare_regression(st.session_state.df_raw)          # refresh split
+        prepare_regression(df_global)          # refresh split
         progress = st.progress(0, text="Training models …")
         #-------------------------------
         # ── In-tab CPU metrics ───────────────────────────────────────────────
@@ -866,7 +866,7 @@ with tab9:
 # =============================================================================
 with tab10:
     st.markdown("## 🎯 Classification Models")
-    if st.session_state.df_raw is None:
+    if df_global is None:
         _no_data_msg()
         st.stop()
 
@@ -889,7 +889,7 @@ with tab10:
 
     # ── 10.2 Prepare split ───────────────────────────────────────────────────
     if not S["data_prepared_c"]:
-        prepare_classification(st.session_state.df_raw)
+        prepare_classification(df_global)
 
     # ── 10.3 Controls ────────────────────────────────────────────────────────
     section("⚙️ Training Configuration")
@@ -926,7 +926,7 @@ with tab10:
         st.metric("CPU Load",         f"{cpu_info['percent']} %")
 #-------------------------------------------------
     if run_c and sel_models_c:
-        prepare_classification(st.session_state.df_raw)
+        prepare_classification(df_global)
         progress2 = st.progress(0, text="Training models …")
 #-----------------------------------------
 # ── In-tab CPU metrics ───────────────────────────────────────────────
@@ -1481,8 +1481,8 @@ with tab12:
         section("🎯 Single-Row Prediction")
         feat_names = S["feat_names"]
 
-        if st.session_state.df_raw is not None and feat_names:
-            ref_df = st.session_state.df_raw[feat_names].describe()
+        if df_global is not None and feat_names:
+            ref_df = df_global[feat_names].describe()
 
             with st.expander("📝 Enter feature values", expanded=True):
                 n_cols = 4
