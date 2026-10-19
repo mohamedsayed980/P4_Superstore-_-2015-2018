@@ -245,9 +245,9 @@ def prepare_classification(df: pd.DataFrame):
         y_enc = df2["profit"].astype(int).values
         le    = LabelEncoder()
         le.classes_ = np.array([0, 1])
-    elif "is_pofit" in df2.columns:
-        df2.dropna(subset=["is_pofit"], inplace=True)
-        y_enc = df2["is_pofit"].astype(int).values
+    elif "pofit" in df2.columns:
+        df2.dropna(subset=["pofit"], inplace=True)
+        y_enc = df2["pofit"].astype(int).values
         le    = LabelEncoder()
         le.classes_ = np.array([0, 1])
     else:
