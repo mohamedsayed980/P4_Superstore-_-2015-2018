@@ -21,6 +21,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # A1 — Core
 import streamlit as st
+
 from fpdf import FPDF
 import pandas as pd
 import numpy as np
@@ -235,18 +236,18 @@ def prepare_regression(df: pd.DataFrame):
 
 # ── D6: prepare classification split ────────────────────────────────────────
 def prepare_classification(df: pd.DataFrame):
-    # ── Detect binary target: Attrition_flag (P3) or is_satisfied (P2)
+    # ── Detect binary target: Attrition_flag (P3) or is_pofit (P2)
     feats   = S["feat_names"]
     df2     = df.copy()
 
-    if "Attrition_flag" in df2.columns:
-        df2.dropna(subset=["Attrition_flag"], inplace=True)
-        y_enc = df2["Attrition_flag"].astype(int).values
+    if "profit" in df2.columns:
+        df2.dropna(subset=["profit"], inplace=True)
+        y_enc = df2["profit"].astype(int).values
         le    = LabelEncoder()
         le.classes_ = np.array([0, 1])
-    elif "is_satisfied" in df2.columns:
-        df2.dropna(subset=["is_satisfied"], inplace=True)
-        y_enc = df2["is_satisfied"].astype(int).values
+    elif "is_pofit" in df2.columns:
+        df2.dropna(subset=["is_pofit"], inplace=True)
+        y_enc = df2["is_pofit"].astype(int).values
         le    = LabelEncoder()
         le.classes_ = np.array([0, 1])
     else:
@@ -492,9 +493,6 @@ def acc_colour(v: float) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 # E  SIDEBAR — DATA LOADER
 # ─────────────────────────────────────────────────────────────────────────────
- 
-
-
 
 with st.sidebar:
     st.image(str(LOGO), width=70)
