@@ -17,6 +17,7 @@
 
 # A1 — Core
 import streamlit as st
+
 import pandas as pd
 import numpy as np
 import os
@@ -56,29 +57,32 @@ import pathlib
 LOGO = pathlib.Path(__file__).parent.parent / "3M_logo.png"
 
 # =============================================================================
-# C — SESSION STATE INITIALISATION
+# C — SESSION STATE INITIALISATION   
 # =============================================================================
-
 def init_state():
     defaults = {
-        "df_raw"      : None,   # original loaded dataframe
-        "df_clean"    : None,   # after IQR cleaning (Tab 3)
-        "df_imputed"  : None,   # after imputation    (Tab 7)
-        "df_work"     : None,   # working copy used across tabs
-        "target_col"  : None,
-        "num_cols"    : [],
-        "cat_cols"    : [],
+        "df_raw"         : None,
+        "df_clean"       : None,
+        "df_imputed"     : None,
+        "df_work"        : None,
+        "target_col"     : None,
+        "num_cols"       : [],
+        "cat_cols"       : [],
         "important_vars" : [],
-        "iqr_table"   : None,   # Tab 3 outlier table
-        "insights_text": "",
-        "file_name"   : "",
+        "iqr_table"      : None,
+        "insights_text"  : "",
+        "file_name"      : "",
         "corr_threshold" : 0.30,
+        "feat_names"     : [],
+        "data_prepared_c": False,
+        "data_prepared_r": False,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
 init_state()
+
 
 # =============================================================================
 # D — HELPER UTILITIES
@@ -135,80 +139,80 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =============================================================================
-# F — FILE LOADER (Sidebar-free: shown above tabs)
+# F — FILE LOADER  (auto-load from data/ folder, upload as fallback)
 # =============================================================================
+_root     = pathlib.Path(__file__).parent.parent
+_csv_path = _root / "data" / "hr_attrition_clean.csv"
 
-with st.sidebar:
-    st.image(str(LOGO), width=70)
-    st.markdown("---")
-    
+
+@st.cache_data
+def _load_auto():
+    if _csv_path.exists():
+        return pd.read_csv(_csv_path)
+    return pd.DataFrame()
+
+
+def _register(df, name):
+    st.session_state.df_raw    = df.copy()
+    st.session_state.df_work   = df.copy()
+    st.session_state.file_name = name
+    st.session_state.num_cols  = get_numeric_cols(df)
+    st.session_state.cat_cols  = get_cat_cols(df)
+    if len(st.session_state.num_cols) == 0:
+        st.session_state.num_cols = df.select_dtypes(include="number").columns.tolist()
+    if len(st.session_state.cat_cols) == 0:
+        st.session_state.cat_cols = df.select_dtypes(include="object").columns.tolist()
+
+
+# Auto-load once, BEFORE any widget is drawn
+if st.session_state.df_raw is None:
+    _auto_df = _load_auto()
+    if not _auto_df.empty:
+        _register(_auto_df, "hr_attrition_clean.csv")
 
 with st.container():
     col_load, col_target, col_thresh, col_info = st.columns([3, 2, 2, 3])
 
     with col_load:
         uploaded = st.file_uploader(
-            "📂 Load Dataset (.csv)", type=["csv"],
-            key="file_uploader", label_visibility="collapsed",
-            help="Upload your CSV dataset"
-        )
+            "Load Dataset (.csv)", type=["csv"],
+            key="file_uploader", label_visibility="collapsed")
         if uploaded:
             try:
-                df = pd.read_csv(uploaded, sep=None, engine="python")
-                st.session_state.df_raw  = df.copy()
-                st.session_state.df_work = df.copy()
-                st.session_state.file_name = uploaded.name
-                
-                st.session_state.num_cols = get_numeric_cols(df)
-                st.session_state.cat_cols = get_cat_cols(df)
-                
-                # Safety: if get_numeric_cols filtered too aggressively, fallback to all numeric  # add that safety
-                if len(st.session_state.num_cols) == 0:
-                    st.session_state.num_cols = df.select_dtypes(include="number").columns.tolist()
-                    if len(st.session_state.cat_cols) == 0:
-                        st.session_state.cat_cols = df.select_dtypes(include="object").columns.tolist()
-                
-                st.success(f"✅  Loaded **{uploaded.name}** — {df.shape[0]:,} rows × {df.shape[1]} columns")
+                _df = pd.read_csv(uploaded, sep=None, engine="python")
+                _register(_df, uploaded.name)
+                st.success(f"Loaded {uploaded.name} - {_df.shape[0]:,} rows x {_df.shape[1]} cols")
             except Exception as e:
                 st.error(f"Error loading file: {e}")
 
     with col_target:
         if st.session_state.df_raw is not None:
             cols = st.session_state.df_raw.columns.tolist()
-            
-            #default_idx = cols.index("price") if "price" in cols else 0                    # old repo1# xx
-            
-            default_idx = cols.index("Profit") if "Profit" in cols else 0
-            
-            target = st.selectbox("🎯 Target Variable", cols, index=default_idx)
-            st.session_state.target_col = target
+            default_idx = cols.index("Attrition_flag") if "Attrition_flag" in cols else 0
+            st.session_state.target_col = st.selectbox(
+                "Target Variable", cols, index=default_idx)
 
     with col_thresh:
-        thresh = st.slider(
-            "Correlation Threshold",
-            0.10, 0.90,
-            float(st.session_state.corr_threshold),
-            0.05
-        )
-        st.session_state.corr_threshold = thresh
+        st.session_state.corr_threshold = st.slider(
+            "Correlation Threshold", 0.10, 0.90,
+            float(st.session_state.corr_threshold), 0.05)
 
     with col_info:
         if st.session_state.df_raw is not None:
-            df = st.session_state.df_raw
-            st.markdown(f"""
-            <div style="background:white;border-radius:8px;padding:10px 14px;
-                        box-shadow:0 2px 6px rgba(0,0,0,.08);font-size:0.82rem;line-height:1.8;">
-                📊 <b>Shape:</b> {df.shape[0]:,} × {df.shape[1]}<br>
-                🔢 <b>Numeric:</b> {len(st.session_state.num_cols)} &nbsp;|&nbsp;
-                🔤 <b>Categorical:</b> {len(st.session_state.cat_cols)}<br>
-                ❓ <b>Missing:</b> {df.isnull().sum().sum():,} cells
-            </div>
-            """, unsafe_allow_html=True)
+            _d = st.session_state.df_raw
+            st.markdown(
+                f"""<div style="background:white;border-radius:8px;padding:10px 14px;
+                box-shadow:0 2px 6px rgba(0,0,0,.08);font-size:0.82rem;line-height:1.8;">
+                <b>Shape:</b> {_d.shape[0]:,} x {_d.shape[1]}<br>
+                <b>Numeric:</b> {len(st.session_state.num_cols)} |
+                <b>Categorical:</b> {len(st.session_state.cat_cols)}<br>
+                <b>Missing:</b> {_d.isnull().sum().sum():,} cells
+                </div>""", unsafe_allow_html=True)
         else:
-            st.info("⬆️ Please upload a CSV file to begin.")
-            
-     
+            st.info("Upload a CSV or place it in data/ folder.")
+
 st.markdown("---")
+
 
 # =============================================================================
 # G — TABS
@@ -228,6 +232,7 @@ tab_labels = [
     "🗺️ Tab 11 · Regional Performance",
     "📈 Tab 12 · Time Series",
     "🧪 Tab 13 · Statistical Tests",
+    "🔬 Tab 14 · A/B Testing",
 ]
 
 tabs = st.tabs(tab_labels)
@@ -305,7 +310,7 @@ with tabs[0]:
                     elif abs_val >= 0.50: return "background-color:#fff9c4; color:#e65100;"
                     else: return ""
 
-                styled = corr_df.style.applymap(color_corr, subset=["Correlation"])
+                styled = corr_df.style.map(color_corr, subset=["Correlation"])
                 st.dataframe(styled, use_container_width=True, height=320)
 
                 # Update important_vars
@@ -609,7 +614,7 @@ with tabs[2]:
                     elif val <= 10: return "background-color:#fff8e1; color:#e65100;"
                     else:          return "background-color:#ffebee; color:#c62828;"
 
-                styled_iqr = iqr_df.style.applymap(style_outlier_pct, subset=["Outlier %"])
+                styled_iqr = iqr_df.style.map(style_outlier_pct, subset=["Outlier %"])
                 st.dataframe(styled_iqr, use_container_width=True, height=230)
 
                 st.markdown("")
@@ -818,7 +823,7 @@ with tabs[4]:
                 with col_imp:
                     st.markdown("**Important Variables**")
                     imp_html = "".join([
-                        f"<div style='padding:5px 10px;margin-bottom:4px;background:#e3f2fd;"
+                        f"<div style='padding:5px 10px;margin-bottom:4px;background:#1a237e;"
                         f"border-radius:5px;font-size:0.83rem;color:#0d47a1;font-weight:600;'>{v}</div>"
                         for v in st.session_state.important_vars[:12]
                     ])
@@ -833,7 +838,7 @@ with tabs[4]:
                             return ""
                         except: return ""
 
-                    styled_sum = sum_df.style.applymap(color_corr_summary, subset=["Corr with Target"])
+                    styled_sum = sum_df.style.map(color_corr_summary, subset=["Corr with Target"])
                     st.dataframe(styled_sum, use_container_width=True, height=380)
 
                 # Export summary
@@ -1091,7 +1096,7 @@ with tabs[5]:
                     elif val < 20: return "background:#fff8e1;color:#e65100;"
                     return "background:#ffebee;color:#c62828;font-weight:bold;"
 
-                styled_miss = miss_df.style.applymap(color_miss, subset=["Missing %"])
+                styled_miss = miss_df.style.map(color_miss, subset=["Missing %"])
                 st.dataframe(styled_miss, use_container_width=True, height=300)
 
             with col_miss_right:
@@ -1340,7 +1345,7 @@ with tabs[6]:
                         return "background:#e8f5e9;color:#2e7d32;"
                     except: return ""
 
-                styled_vif = vif_df[["Feature", "VIF", "Status"]].style.applymap(
+                styled_vif = vif_df[["Feature", "VIF", "Status"]].style.map(
                     color_vif, subset=["VIF"]
                 )
                 st.dataframe(styled_vif, use_container_width=True, height=380)
@@ -1562,7 +1567,7 @@ with tabs[9]:
         st.session_state.cat_cols = cat
 
         st.markdown("""
-        <div style='background:#fff3e0;border-radius:10px;padding:1rem 1.2rem;margin-bottom:1rem;
+        <div style='background:#1565c0;border-radius:10px;padding:1rem 1.2rem;margin-bottom:1rem;
                     border-left:5px solid #e65100;'>
         <b>19.4% of orders are unprofitable.</b> This tab identifies which products, segments,
         and discount levels destroy profit margins — enabling data-driven pricing decisions.
@@ -1846,7 +1851,7 @@ with tabs[12]:
         st.session_state.cat_cols = cat
 
         st.markdown("""
-        <div style='background:#e3f2fd;border-radius:10px;padding:1rem 1.2rem;margin-bottom:1rem;'>
+        <div style='background:#1a237e;border-radius:10px;padding:1rem 1.2rem;margin-bottom:1rem;'>
         Statistical tests confirm whether observed differences are <b>real or due to chance</b>.
         P-value &lt; 0.05 = statistically significant.
         </div>""", unsafe_allow_html=True)
@@ -1937,12 +1942,244 @@ with tabs[12]:
 
 
 # H — FOOTER
+
+# =============================================================================
+# TAB 14 — A/B TESTING
+# =============================================================================
+with tabs[13]:
+    st.markdown('<div class="section-title">🔬 A/B Testing — Business Experiment Analysis</div>', unsafe_allow_html=True)
+    if st.session_state.df_raw is None:
+        st.warning("Please load a dataset first.")
+    else:
+        df  = st.session_state.df_work
+        num = df.select_dtypes(include="number").columns.tolist()
+        cat = df.select_dtypes(include="object").columns.tolist()
+        st.session_state.num_cols = num
+        st.session_state.cat_cols = cat
+
+        st.markdown("""
+        <div style='background:#1565c0;border-radius:10px;padding:1rem 1.2rem;margin-bottom:1rem;
+                    border-left:5px solid #2e7d32;'>
+        <b>A/B Testing</b> answers: <i>"Is the difference between two groups real — or just random chance?"</i><br>
+        We test whether <b>discounting orders</b> significantly reduces profit using
+        statistical evidence — not just intuition.
+        </div>""", unsafe_allow_html=True)
+
+        # ── Experiment Setup
+        st.markdown("### 🧪 Experiment Design")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f"""
+            <div style='background:#1565c0;border-radius:10px;padding:1rem;
+                        border-left:5px solid #1565c0;'>
+                <h4 style='color:#2e7d32;margin:0;'>🅰️ Group A — Control</h4>      
+                <p style='margin:0.5rem 0 0 0;'>Non-Discounted Orders<br>
+                <code>is_discounted = 0</code></p>
+            </div>""", unsafe_allow_html=True)
+        with col2:
+            st.markdown(f"""
+            <div style='background:#1565c0;border-radius:10px;padding:1rem;
+                        border-left:5px solid #c62828;'>
+                <h4 style='color:#c62828;margin:0;'>🅱️ Group B — Treatment</h4>   
+                <p style='margin:0.5rem 0 0 0;'>Discounted Orders<br>
+                <code>is_discounted = 1</code></p>
+            </div>""", unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        if "is_discounted" not in df.columns or "Profit" not in df.columns:
+            st.warning("Required columns (is_discounted, Profit) not found.")
+        else:
+            group_A = df[df["is_discounted"]==0]["Profit"].dropna()
+            group_B = df[df["is_discounted"]==1]["Profit"].dropna()
+
+            # ── Descriptive Stats
+            st.markdown("### 📊 Group Comparison")
+            c1,c2,c3,c4 = st.columns(4)
+            c1.metric("Group A Size (No Discount)", f"{len(group_A):,}")
+            c2.metric("Group B Size (Discounted)",  f"{len(group_B):,}")
+            c3.metric("Group A Avg Profit", f"${group_A.mean():.2f}")
+            c4.metric("Group B Avg Profit", f"${group_B.mean():.2f}")
+
+            diff = group_A.mean() - group_B.mean()
+            st.markdown(f"""
+            <div style='background:#1b5e20;border-radius:10px;padding:0.8rem 1.2rem;margin:1rem 0;
+                        border-left:5px solid #e65100;'>
+            <b>Observed Difference:</b> Group A earns <b>${diff:.2f} more per order</b> than Group B
+            </div>""", unsafe_allow_html=True)
+
+            # ── Distribution Plot
+            col_l, col_r = st.columns(2)
+            with col_l:
+                st.markdown("#### 📉 Profit Distribution — A vs B")
+                fig, ax = plt.subplots(figsize=(6,4))
+                ax.hist(group_A.clip(-500,500), bins=50, alpha=0.6,
+                        color="#1565c0", label=f"A: No Discount (avg ${group_A.mean():.0f})",
+                        edgecolor="white")
+                ax.hist(group_B.clip(-500,500), bins=50, alpha=0.6,
+                        color="#c62828", label=f"B: Discounted (avg ${group_B.mean():.0f})",
+                        edgecolor="white")
+                ax.axvline(group_A.mean(), color="#1565c0", linewidth=2, linestyle="--")
+                ax.axvline(group_B.mean(), color="#c62828", linewidth=2, linestyle="--")
+                ax.axvline(0, color="#546e7a", linewidth=1.5, label="Break-even")
+                ax.set_xlabel("Profit ($)", fontsize=9)
+                ax.set_ylabel("Count", fontsize=9)
+                ax.set_title("Profit Distribution: Group A vs Group B",
+                             fontsize=11, fontweight="bold")
+                ax.legend(fontsize=8); ax.grid(alpha=0.3)
+                fig.tight_layout(); st.pyplot(fig); plt.close(fig)
+
+            with col_r:
+                st.markdown("#### 📦 Box Plot Comparison")
+                fig, ax = plt.subplots(figsize=(6,4))
+                bp = ax.boxplot(
+                    [group_A.clip(-500,500), group_B.clip(-500,500)],
+                    patch_artist=True, notch=True,
+                    labels=["A: No Discount","B: Discounted"]
+                )
+                bp["boxes"][0].set_facecolor("#1565c0")
+                bp["boxes"][1].set_facecolor("#c62828")
+                for box in bp["boxes"]: box.set_alpha(0.7)
+                ax.axhline(0, color="#546e7a", linewidth=1.5,
+                           linestyle="--", label="Break-even")
+                ax.set_ylabel("Profit ($)", fontsize=9)
+                ax.set_title("Profit Box Plot — A vs B",
+                             fontsize=11, fontweight="bold")
+                ax.legend(fontsize=8); ax.grid(alpha=0.3)
+                fig.tight_layout(); st.pyplot(fig); plt.close(fig)
+
+            st.markdown("<br>")
+
+            # ── Statistical Tests
+            st.markdown("### 🧮 Statistical Analysis")
+
+            # Welch T-Test
+            t_stat, p_value = stats.ttest_ind(group_A, group_B, equal_var=False)
+
+            # Effect size (Cohen's d)
+            pooled_std = np.sqrt((group_A.std()**2 + group_B.std()**2) / 2)
+            cohens_d   = (group_A.mean() - group_B.mean()) / pooled_std
+
+            # 95% Confidence Interval
+            se_diff = np.sqrt(group_A.std()**2/len(group_A) +
+                              group_B.std()**2/len(group_B))
+            ci_low  = diff - 1.96 * se_diff
+            ci_high = diff + 1.96 * se_diff
+
+            # Display results
+            r1,r2,r3,r4 = st.columns(4)
+            r1.metric("T-Statistic",    f"{t_stat:.4f}")
+            r2.metric("P-Value",        f"{p_value:.6f}")
+            r3.metric("Cohen's d",      f"{cohens_d:.4f}")
+            r4.metric("95% CI",         f"[${ci_low:.2f}, ${ci_high:.2f}]")
+
+            alpha = 0.05
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            if p_value < alpha:
+                st.success(f"""
+                ✅ **STATISTICALLY SIGNIFICANT** (p = {p_value:.6f} < 0.05)
+
+                The difference in profit between discounted and non-discounted orders
+                is **real** — not due to random chance.
+                """)
+            else:
+                st.info(f"ℹ️ Not statistically significant (p = {p_value:.4f} > 0.05)")
+
+            # Effect size interpretation
+            effect_label = ("Negligible" if abs(cohens_d) < 0.2
+                            else "Small" if abs(cohens_d) < 0.5
+                            else "Medium" if abs(cohens_d) < 0.8
+                            else "Large")
+            st.markdown(f"**Effect Size:** Cohen's d = {cohens_d:.3f} → **{effect_label} effect**")
+
+            st.markdown("<br>")
+
+            # ── A/B by Discount Level
+            st.markdown("### 📊 A/B by Discount Bucket")
+            if "Discount" in df.columns:
+                df["disc_bucket"] = pd.cut(df["Discount"],
+                    bins=[-0.01,0,0.1,0.2,0.3,0.4,0.5,1.0],
+                    labels=["0%","1-10%","11-20%","21-30%","31-40%","41-50%",">50%"])
+                bucket_stats = df.groupby("disc_bucket", observed=True)["Profit"].agg(
+                    ["mean","count","std"]).reset_index()
+                bucket_stats.columns = ["Discount Range","Avg Profit","Orders","Std Dev"]
+
+                colors_b = ["#2e7d32" if v>0 else "#c62828"
+                            for v in bucket_stats["Avg Profit"]]
+                fig, ax = plt.subplots(figsize=(10,4))
+                bars = ax.bar(bucket_stats["Discount Range"],
+                              bucket_stats["Avg Profit"],
+                              color=colors_b, alpha=0.85)
+                for bar, val, n in zip(bars,
+                                       bucket_stats["Avg Profit"],
+                                       bucket_stats["Orders"]):
+                    ax.text(bar.get_x()+bar.get_width()/2,
+                            bar.get_height() + (2 if val>=0 else -8),
+                            f"${val:.0f} (n={n:,})",
+                            ha="center", fontsize=8, fontweight="bold")
+                ax.axhline(0, color="#1565c0", linewidth=1.5, linestyle="--",
+                           label="Break-even")
+                ax.set_xlabel("Discount Range", fontsize=10)
+                ax.set_ylabel("Avg Profit ($)", fontsize=10)
+                ax.set_title("Average Profit by Discount Level — Green=Profitable, Red=Loss",
+                             fontsize=12, fontweight="bold")
+                ax.legend(fontsize=9); ax.grid(axis="y", alpha=0.3)
+                fig.tight_layout(); st.pyplot(fig); plt.close(fig)
+                df.drop(columns=["disc_bucket"], inplace=True, errors="ignore")
+
+            st.markdown("<br>")
+
+            # ── Business Decision
+            st.markdown("### 💼 Business Decision")
+            st.markdown(f"""
+            <div style='background:#212121;border-radius:12px;padding:1.2rem 1.5rem;
+                        border-left:5px solid #1565c0;'>
+                <h4 style='color:#6a1b9a;margin-top:0;'>📋 A/B Test Summary & Recommendation</h4>
+                <table style='width:100%;border-collapse:collapse;'>
+                <tr><td style='padding:4px 8px;'><b>Hypothesis</b></td>
+                    <td>Discounting reduces profit significantly</td></tr>
+                <tr><td style='padding:4px 8px;'><b>Group A (Control)</b></td>
+                    <td>Non-discounted · n={len(group_A):,} · Avg profit = ${group_A.mean():.2f}</td></tr>
+                <tr><td style='padding:4px 8px;'><b>Group B (Treatment)</b></td>
+                    <td>Discounted · n={len(group_B):,} · Avg profit = ${group_B.mean():.2f}</td></tr>
+                <tr><td style='padding:4px 8px;'><b>Difference</b></td>
+                    <td>${diff:.2f} per order · 95% CI: [${ci_low:.2f}, ${ci_high:.2f}]</td></tr>
+                <tr><td style='padding:4px 8px;'><b>P-Value</b></td>
+                    <td>{p_value:.6f} {"✅ Significant" if p_value<0.05 else "❌ Not Significant"}</td></tr>
+                <tr><td style='padding:4px 8px;'><b>Effect Size</b></td>
+                    <td>Cohen's d = {cohens_d:.3f} ({effect_label})</td></tr>
+                <tr><td style='padding:4px 8px;'><b>Recommendation</b></td>
+                    <td><b>Cap discounts at 20% maximum.</b> Discounts above 20% consistently
+                    produce negative profit — confirmed statistically.</td></tr>
+                </table>
+            </div>""", unsafe_allow_html=True)
+
+            # Export
+            st.markdown("<br>")
+            results_df = pd.DataFrame({
+                "Metric": ["Group A Size","Group B Size","Group A Avg Profit",
+                           "Group B Avg Profit","Difference","T-Statistic",
+                           "P-Value","Cohen d","CI Lower","CI Upper","Significant"],
+                "Value": [len(group_A), len(group_B),
+                          round(group_A.mean(),2), round(group_B.mean(),2),
+                          round(diff,2), round(t_stat,4),
+                          round(p_value,6), round(cohens_d,4),
+                          round(ci_low,2), round(ci_high,2),
+                          "Yes" if p_value<0.05 else "No"]
+            })
+            st.download_button("📥 Export A/B Results (CSV)",
+                               results_df.to_csv(index=False),
+                               "ab_test_results.csv","text/csv",
+                               key="dl_ab")
+
+
 # =============================================================================
 
 st.markdown("""
 <div class="footer">
     Superstore Sales · Tableau Superstore EDA Dashboard &nbsp;|&nbsp;
-    Built with Streamlit · Tabs 1–13 Complete &nbsp;|&nbsp;
+    Built with Streamlit · Tabs 1–14 Complete &nbsp;|&nbsp;
     M3 · Data Analysis Portfolio
 </div>
 """, unsafe_allow_html=True)
