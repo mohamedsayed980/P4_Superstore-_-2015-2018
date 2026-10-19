@@ -142,7 +142,7 @@ st.markdown("""
 # F — FILE LOADER  (auto-load from data/ folder, upload as fallback)
 # =============================================================================
 _root     = pathlib.Path(__file__).parent.parent
-_csv_path = _root / "data" / "hr_attrition_clean.csv"
+_csv_path = _root / "data" / "superstore_clean.csv"
 
 
 @st.cache_data
@@ -168,7 +168,7 @@ def _register(df, name):
 if st.session_state.df_raw is None:
     _auto_df = _load_auto()
     if not _auto_df.empty:
-        _register(_auto_df, "hr_attrition_clean.csv")
+        _register(_auto_df, "superstore_clean.csv")
 
 with st.container():
     col_load, col_target, col_thresh, col_info = st.columns([3, 2, 2, 3])
