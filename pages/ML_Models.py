@@ -15,7 +15,7 @@
 # Shared state with ML_EDA_Dashboard.py via st.session_state
 # Run standalone:  streamlit run ML_Models.py
 # =============================================================================
-## path = streamlit run "E:\FINAL PROJECTS\P3-IBM_HR_employee Attrition\ML_Models.py" 
+## path = streamlit run "E:\FINAL PROJECTS\P4_Superstore (2015-2018)\ML_Models.py" 
 # ─────────────────────────────────────────────────────────────────────────────
 # A  IMPORTS
 # ─────────────────────────────────────────────────────────────────────────────
@@ -86,7 +86,7 @@ except ImportError:
 # ─────────────────────────────────────────────────────────────────────────────
 # ADD LOGO TO DASHBOARD 
 import pathlib
-LOGO = pathlib.Path(__file__).parent.parent / "3M_logo.png" 
+LOGO = pathlib.Path(__file__).parent.parent / "M3_logo.png" 
 
 #==============================================================================
 
